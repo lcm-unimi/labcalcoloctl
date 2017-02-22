@@ -4,6 +4,7 @@
 ##Last edit: 22/02/2017 - Silva
 
 from time import time
+start = time()
 import argparse
 import textwrap
 import os
@@ -51,6 +52,14 @@ class Host(Thread):
       # Variables initialization
       self.hostname = name
       self.location = location
+      self.running  = False
+      self.up       = False
+
+   # Run method called on Thread start. Check if host is up and if is running a VM
+   def run(self) :
+       if self.isup() :
+            self.up = True
+            self.running=self.vmstatus()
 
    # Ping the host to see if it's up
    def isup(self):
@@ -91,28 +100,27 @@ class Host(Thread):
          ssh = self.sshcommand(statuscmd)
          result = [ l for l in ssh.stdout.readlines() if 'qemu' in l ]
          if result == []:
-              return False
+              self.running=False
          else:
-              return True
+              self.running=True
       else:
-          return -1
-    
+          self.up=False
+      return self.running
+
    def vmdoctor(self) :
       to_search=['qemu', 'spicec']
-      # It's ugly, but it should not be necessary: passwords should not be visible from ps aux
+      # It's ugly (and more or less useless), but it should not be necessary: passwords should not be visible from ps aux
       pw_remove=['s/,password=\w*$//', 's/-w \w*$//']
       # Build the status query with programs names and relative pw remove strings
       status_query="ps aux | grep -E '" + '|'.join(to_search) + "' | grep -v grep | sed '" + ';'.join(pw_remove)+ "'"
       if self.isup():
         ssh = self.sshcommand(status_query).stdout.readlines()
+
         qemu_status = [ l for l in ssh if 'qemu' in l ] # Filter for a single command
         if len(qemu_status) :
             print "Qemu command running on", self.hostname+":\n", qemu_status 
         else :
             print "Qemu is not running on", self.hostname
-            # Do we want to ask this? There's the start command to do this...
-            #answer=raw_input("Do you want to start a VM now? [y/n] ")
-            #if answer=="y" : self.vmstart()
 
         spicec_status = [ l for l in ssh if 'spicec' in l ]
         if not len(spicec_status) and len(qemu_status) :
@@ -170,23 +178,24 @@ elif args.lcm1:
 elif args.lcm2:
     nodes = [ host for host in Hosts if host.location == 'LCM2' ]
 elif args.node:
-    for i in args.node:
-        for j in Hosts: 
-             if (i==j.hostname): nodes.append(j)
+    nodes = [ j for j in Hosts if j.hostname in args.node ]
 
+# Start the threads and run commands on nodes
+for n in nodes :
+    n.start()
 
-# Run commands on nodes
 running=[]
 down=[]
 if args.cmd == 'status':
-    start = time()
     num=len(nodes)
     index=0
     print ' Querying ' + str(num) + ' hosts...'
     for i in nodes:
-        if i.vmstatus():
+        # Rejoin them when their work is done
+        i.join()
+        if i.running:
           running.append(i.hostname)
-        if i.vmstatus()<0 :
+        if not i.up :
           down.append(i.hostname)
         index += 1
         print_progressbar(index, num)
