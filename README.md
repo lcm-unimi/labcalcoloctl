@@ -4,6 +4,7 @@ Simple tool to handle LabCalcolo's VMs.
 usage: labcalcolo [{status,start,stop,doctor}] [options]
 
 positional arguments:
+
     status             default. Check whether there are VMs running on the considered nodes
     
     start, stop        start and stop VMs
