@@ -1,19 +1,22 @@
 #!/usr/bin/python
 
 ##Author: Elisa Aliverti
-##Last edit: 14/02/2017 - Silva
+##Last edit: 22/02/2017 - Silva
 
 from time import time
+start = time()
 import argparse
 import textwrap
 import os
 import subprocess, sys
 from threading import Thread
+from getpass import getpass
 
-parser = argparse.ArgumentParser(usage='labcalcolo [{status,start,stop}] [options]')
+choices = ('status','start','stop', 'doctor') 
+parser = argparse.ArgumentParser(usage='labcalcolo {'+','.join(choices)+'} [options]')
 
 ## positional arguments
-parser.add_argument( 'cmd', nargs="?", choices=('status','start','stop'), default='status', 
+parser.add_argument( 'cmd', nargs="?", choices=choices, default='status', 
                      help='Specify command to execute, default is \'status\'' )
 
 ## optional arguments
@@ -30,7 +33,7 @@ parser.add_argument( '-v', '--version', action='version', version='%(prog)s 1.3'
 ## 
 args = parser.parse_args()
 
-def progress_bar(index, num) :
+def print_progressbar(index, num) :
     sys.stdout.write('\r ['
                         + '='*index
                         + '>'*(1-int(index/num))
@@ -49,6 +52,14 @@ class Host(Thread):
       # Variables initialization
       self.hostname = name
       self.location = location
+      self.running  = False
+      self.up       = False
+
+   # Run method called on Thread start. Check if host is up and if is running a VM
+   def run(self) :
+       if self.isup() :
+            self.up = True
+            self.running=self.vmstatus()
 
    # Ping the host to see if it's up
    def isup(self):
@@ -66,8 +77,10 @@ class Host(Thread):
        	         		 shell = False, 
                                  stdout = subprocess.PIPE,
                                  stderr = subprocess.PIPE )
+         return ssh
       else:
          print self.hostname + ' is not up.'
+         return False
 
    def vmstart(self):
       if not self.vmstatus():
@@ -84,17 +97,43 @@ class Host(Thread):
    def vmstatus(self):
       statuscmd = "ps aux | grep qemu | grep -v grep"
       if self.isup():
-         ssh = subprocess.Popen( ["ssh", "%s" % self.hostname, statuscmd],
-       	         		 shell = False,
-				 stdout = subprocess.PIPE,
-				 stderr = subprocess.PIPE )
+         ssh = self.sshcommand(statuscmd)
          result = [ l for l in ssh.stdout.readlines() if 'qemu' in l ]
          if result == []:
-              return False
+              self.running=False
          else:
-              return True
+              self.running=True
       else:
-          return -1
+          self.up=False
+      return self.running
+
+   def vmdoctor(self) :
+      to_search=['qemu', 'spicec']
+      # It's ugly (and more or less useless), but it should not be necessary: passwords should not be visible from ps aux
+      pw_remove=['s/,password=\w*$//', 's/-w \w*$//']
+      # Build the status query with programs names and relative pw remove strings
+      status_query="ps aux | grep -E '" + '|'.join(to_search) + "' | grep -v grep | sed '" + ';'.join(pw_remove)+ "'"
+      if self.isup():
+        ssh = self.sshcommand(status_query).stdout.readlines()
+
+        qemu_status = [ l for l in ssh if 'qemu' in l ] # Filter for a single command
+        if len(qemu_status) :
+            print "Qemu command running on", self.hostname+":\n", qemu_status 
+        else :
+            print "Qemu is not running on", self.hostname
+
+        spicec_status = [ l for l in ssh if 'spicec' in l ]
+        if not len(spicec_status) and len(qemu_status) :
+            print "Spicec is not running on", self.hostname, 
+            if raw_input("Do you want to start it now? [y/n] ")=="y" :
+                pw=getpass("Vm password: ")
+                spiceccmd="export DISPLAY=:4 ; spicec -f -h 127.0.0.1 -p 5900 -w "+pw+" &"
+                self.sshcommand(spiceccmd) # How to check if everything went as expected?
+                # Check if everything works fine now
+                spicec_status = [ l for l in self.sshcommand(status_query).stdout.readlines() if 'spicec' in l ]
+        if len(spicec_status) :
+            print "Spicec command running on", self.hostname+": ", spicec_status
+
 ### end class Host
 
 ## Host list
@@ -139,33 +178,32 @@ elif args.lcm1:
 elif args.lcm2:
     nodes = [ host for host in Hosts if host.location == 'LCM2' ]
 elif args.node:
-    for i in args.node:
-        for j in Hosts: 
-             if (i==j.hostname): nodes.append(j)
+    nodes = [ j for j in Hosts if j.hostname in args.node ]
 
+# Start the threads and run commands on nodes
+for n in nodes :
+    n.start()
 
-# Run commands on nodes
 running=[]
 down=[]
 if args.cmd == 'status':
-    start = time()
     num=len(nodes)
     index=0
     print ' Querying ' + str(num) + ' hosts...'
     for i in nodes:
-        if i.vmstatus():
+        # Rejoin them when their work is done
+        i.join()
+        if i.running:
           running.append(i.hostname)
-        if i.vmstatus()<0 :
+        if not i.up :
           down.append(i.hostname)
         index += 1
-        progress_bar(index, num)
+        print_progressbar(index, num)
     # New line after progress bar     
     print '\n Done... (%(t).3f s)' % {'t': (time() - start)}
 
-  
-
     if len(running):
-        print "VM running on:"
+        print "VM(s) running on:"
         for i in running : print '\t',i
     else :
         print "No VMs are running"
@@ -177,4 +215,5 @@ elif args.cmd == 'start':
    for i in nodes: i.vmstart()
 elif args.cmd == 'stop':
    for i in nodes: i.vmstop()
-
+elif args.cmd == 'doctor' :
+   for i in nodes : i.vmdoctor()
