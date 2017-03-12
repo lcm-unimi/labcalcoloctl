@@ -1,12 +1,16 @@
 #!/usr/bin/python
 
+##Author: Elisa Aliverti
+##Last modified: 20/09/2016 - andreatsh - version 1.3  
+
+import time
 import argparse
 import textwrap
 import os
 import subprocess, sys
 from threading import Thread
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(usage='labcalcolo [{status,start,stop}] [options]')
 
 ## positional arguments
 parser.add_argument( 'cmd', nargs="?", choices=('status','start','stop'), default='status', 
@@ -21,13 +25,13 @@ parser.add_argument( '-1', '--lcm1', action='store_true', dest='lcm1',
                      help='LCM1 nodes are considered' )
 parser.add_argument( '-2', '--lcm2', action='store_true', dest='lcm2',
                      help='LCM2 nodes are considered' )
-parser.add_argument( '-v', '--version', action='version', version='%(prog)s 1.0', 
+parser.add_argument( '-v', '--version', action='version', version='%(prog)s 1.3', 
                      help='Print program version' )	   
 ## 
 args = parser.parse_args()
 
 ## main path (you don't say)
-main_path = "/home/elisaaliverti/150/1607_vmcalcolo/main"
+main_path = "/var/etc/vmctl"
 
 class Host(Thread):
    # Constructor
@@ -37,130 +41,111 @@ class Host(Thread):
       # Variables initialization
       self.hostname = name
       self.location = location
-      
+
    # Ping the host to see if it's up
    def isup(self):
       # Is the host up?
       ping = os.popen("ping -w1 -c1 " + self.hostname, "r")
-      # print("pinging " + self.hostname)
+      # print("pinging "  self.hostname)
       if "0 received" in ping.read():
-	 return False
+      	 return False
       else:
          return True
 
    def sshcommand(self, command):
       if self.isup():
          ssh = subprocess.Popen( ["ssh", "%s" % self.hostname, command],
-       	         		 shell = False,
-				 stdout = subprocess.PIPE,
-				 stderr = subprocess.PIPE )
-         result = ssh.stdout.readlines()
-         if result == []:
-            error = ssh.stderr.readlines()
-	    print >> sys.stderr, "ERROR: %s" % error
-         else:
-            print result
-	    ## non ci sono piu` i colori! :(
+       	         		 shell = False, 
+                                 stdout = subprocess.PIPE,
+                                 stderr = subprocess.PIPE )
+      else:
+         print self.hostname + ' is not up.'
 
    def vmstart(self):
-      startcmd = main_path + " 1"
-      self.sshcommand(startcmd)
-
+      if not self.vmstatus():
+          startcmd = main_path + " 1"
+          self.sshcommand(startcmd)
+          print 'VM is now starting on ' + self.hostname
+      else:
+          print 'VM is already running on ' + self.hostname
+          
    def vmstop(self):
       stopcmd = main_path + " 0"
       self.sshcommand(stopcmd)
 
    def vmstatus(self):
-   ## si poteva anche fare come per gli altri due, solo che poi dacche` si sarebbe passati da sshcommand avrebbe stampato l'output di grep automaticamente...
-      statuscmd = "ps aux | grep qemu"
+      statuscmd = "ps aux | grep qemu | grep -v grep"
       if self.isup():
          ssh = subprocess.Popen( ["ssh", "%s" % self.hostname, statuscmd],
        	         		 shell = False,
 				 stdout = subprocess.PIPE,
 				 stderr = subprocess.PIPE )
          result = ssh.stdout.readlines()
+	
          if result == []:
-            error = ssh.stderr.readlines()
-	    print >> sys.stderr, "ERROR: %s" % error
+              return False
          else:
-	    # print result
-            ## this way, experimentally, you always grep at least 3 processes (ssh host ps aux | grep qemu, ps aux | grep qemu & grep qemu)
-            if len(result) < 4:
-               print("VM is not running on %s" % self.hostname)
-               return False
-            else:
-               print("VM is running on %s" % self.hostname)
-	       return True
-
+              return True
+      else:
+          print self.hostname + ' is not up.'
 ### end class Host
 
 ## Host list
-lcm1 = [Host('abe',	'LCM1'),
-	Host('crash',	'LCM1'),
-	Host('duke',	'LCM1'),
-	Host('glados',	'LCM1'),
-	Host('lara',	'LCM1'),
-	Host('link',	'LCM1'),
-	Host('king',	'LCM1'),
-	Host('pang',	'LCM1'),
-	Host('pong',	'LCM1'), 
-        Host('snake',	'LCM1'),
-	Host('sonic',	'LCM1'),
-	Host('spyro',	'LCM1'),
-	Host('yoshi',	'LCM1')]
-lcm2 = [Host('actarus',	'LCM2'),
-	Host('elwood',	'LCM2'),
-	Host('gex',	'LCM2'),
-	Host('gin',	'LCM2'),
-	Host('jake',	'LCM2'),
-	Host('kirk',	'LCM2'),
-	Host('martini',	'LCM2'),
-	Host('picard',	'LCM2'),
-        Host('q',	'LCM2'),
-	Host('raziel',	'LCM2'),
-	Host('sarek',	'LCM2'),
-	Host('spock',	'LCM2'),
-	Host('tron',	'LCM2'),
-	Host('worf',	'LCM2'),
-	Host('zombie',	'LCM2')]
-lcm = lcm1 + lcm2
-##
+Hosts = [
+  Host('abe', 'LCM1'),
+  Host('crash', 'LCM1'),
+  Host('duke', 'LCM1'),
+  Host('glados', 'LCM1'),
+  Host('lara', 'LCM1'),
+  Host('link', 'LCM1'),
+  Host('king', 'LCM1'),
+  Host('pang', 'LCM1'),
+  Host('pong', 'LCM1'), 
+  Host('snake', 'LCM1'),
+  Host('sonic', 'LCM1'),
+  Host('spyro', 'LCM1'),
+  Host('yoshi', 'LCM1'),
+  Host('actarus', 'LCM2'),
+  Host('elwood', 'LCM2'),
+  Host('gex', 'LCM2'),
+  Host('gin', 'LCM2'),
+  Host('jake', 'LCM2'),
+  Host('kirk', 'LCM2'),
+  Host('martini', 'LCM2'),
+  Host('picard', 'LCM2'),
+  Host('q', 'LCM2'),
+  Host('raziel', 'LCM2'),
+  Host('sarek',  'LCM2'),
+  Host('spock',  'LCM2'),
+  Host('tron',  'LCM2'),
+  Host('worf',  'LCM2'),
+  Host('zombie', 'LCM2')
+]
+
+nodes = []
+
+# Filter hostlist according to arguments
+if args.lcm:
+    nodes  = Hosts
+elif args.lcm1:
+    nodes = [ host for host in Hosts if host.location == 'LCM1' ]
+elif args.lcm2:
+    nodes = [ host for host in Hosts if host.location == 'LCM2' ]
+elif args.node:
+    for i in args.node:
+        for j in Hosts: 
+             if (i==j.hostname): nodes.append(j)
 
 
-hosts = []
-
-if ( args.lcm or (args.lcm1 and args.lcm2) ): hosts += lcm
-else: 
-   if args.lcm1: 
-      hosts += lcm1 
-      if args.node:
-         for i in args.node: 
-	    for j in lcm2: 
-	       if (i==j.hostname): hosts.append(j) 
-   elif args.lcm2:
-      hosts += lcm2
-      if args.node:
-         for i in args.node:
-	    for j in lcm1:
-	       if (i==j.hostname): hosts.append(j)
-   elif args.node:
-      for i in args.node:
-         for j in lcm: 
-	    if (i==j.hostname): hosts.append(j)
-   ## n.b.: non ci sono controlli sui nomi dei nodi che vengono passati...
-   ## inoltre non so se sia ovvio, ma se si scrive il comando status/start/stop DOPO -n nomenodo crede sia un nome sbagliato di nodo e esegue il comando status (default)
-
-# print hosts
-
+# Run commands on nodes
 if args.cmd == 'status':
-   # print("status")
-   for i in hosts:
-      i.vmstatus()
+   for i in nodes: 
+       if i.vmstatus(): 
+          print("VM is running on %s" % i.hostname)
+       else : 
+          print("VM is not running on %s" % i.hostname) 
 elif args.cmd == 'start':
-   # print("start")
-   for i in hosts:
-      i.vmstart()
+   for i in nodes: i.vmstart()
 elif args.cmd == 'stop':
-   # print("stop")
-   for i in hosts:
-      i.vmstop()
+   for i in nodes: i.vmstop()
+
