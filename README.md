@@ -1,12 +1,18 @@
 # labcalcoloctl
 Simple tool to handle LabCalcolo's VMs.
 
-usage: labcalcolo [{status,start,stop}] [options]
+usage: labcalcolo [{status,start,stop,doctor}] [options]
 
 positional arguments:
-  {status,start,stop}  Specify command to execute, default is 'status'
+
+    status             default. Check whether there are VMs running on the considered nodes
+    
+    start, stop        start and stop VMs
+    
+    doctor             check if qemu and spicec are running. If qemu is running, but spicec is not, ask user if (s)he wants to start it
 
 optional arguments:
+
   -h, --help           show this help message and exit
   
   -a, --all            All LCM nodes are considered
